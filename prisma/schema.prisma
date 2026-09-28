@@ -1,0 +1,313 @@
+// Clubhouse Ops — manager reporting for the CFC clubhouses (Oriana, Festival Living).
+//
+// Core idea: every manager action (check-in, checklist answer, photo, incident,
+// maintenance issue) must carry a live GPS fix that the server verifies against
+// the clubhouse geofence. Visits accumulate "verified on-site time" from GPS
+// heartbeats, and the daily report can only be submitted once the manager has
+// spent the minimum time (default 90 min) inside that clubhouse that day.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  MANAGER
+}
+
+enum StaffRole {
+  RECEPTIONIST
+  LIFEGUARD
+  GYM_TRAINER
+  OTHER
+}
+
+enum VisitStatus {
+  ACTIVE
+  COMPLETED
+  AUTO_CLOSED // manager stopped sending GPS heartbeats / never checked out
+}
+
+enum ReportStatus {
+  DRAFT
+  SUBMITTED
+}
+
+enum AnswerStatus {
+  OK
+  ISSUE
+  NA
+}
+
+enum StaffCheckStatus {
+  PRESENT
+  LATE
+  ABSENT
+  OFF // not rostered on this shift
+}
+
+enum Severity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum IncidentType {
+  COMPLAINT
+  SAFETY
+  MEDICAL
+  SECURITY
+  STAFF
+  OTHER
+}
+
+enum IssueCategory {
+  CIVIL
+  MEP
+  FURNITURE
+  EQUIPMENT
+}
+
+enum OpenClosed {
+  OPEN
+  CLOSED
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         Role     @default(MANAGER)
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  visits    Visit[]
+  reports   DailyReport[]
+  incidents Incident[]
+  issues    Issue[]       @relation("IssueReporter")
+  closed    Issue[]       @relation("IssueCloser")
+  photos    Photo[]
+}
+
+model Clubhouse {
+  id               String  @id @default(cuid())
+  code             String  @unique
+  name             String
+  latitude         Float
+  longitude        Float
+  radiusM          Int     @default(150)
+  // false until an admin confirms the exact coordinates on the Clubhouses page
+  locationVerified Boolean @default(false)
+  sortOrder        Int     @default(0)
+
+  staff     Staff[]
+  visits    Visit[]
+  reports   DailyReport[]
+  incidents Incident[]
+  issues    Issue[]
+  photos    Photo[]
+}
+
+model Staff {
+  id                String    @id @default(cuid())
+  name              String
+  role              StaffRole
+  clubhouseId       String
+  clubhouse         Clubhouse @relation(fields: [clubhouseId], references: [id])
+  phone             String?
+  // lifeguards only — the contract requires a valid lifesaving certificate at all times
+  certificateExpiry DateTime?
+  active            Boolean   @default(true)
+  createdAt         DateTime  @default(now())
+
+  checks StaffCheck[]
+}
+
+model Visit {
+  id              String      @id @default(cuid())
+  userId          String
+  user            User        @relation(fields: [userId], references: [id])
+  clubhouseId     String
+  clubhouse       Clubhouse   @relation(fields: [clubhouseId], references: [id])
+  day             String // YYYY-MM-DD in Africa/Cairo
+  status          VisitStatus @default(ACTIVE)
+  checkInAt       DateTime    @default(now())
+  checkOutAt      DateTime?
+  checkInLat      Float
+  checkInLng      Float
+  checkInAccuracy Float
+  checkOutLat     Float?
+  checkOutLng     Float?
+  verifiedSeconds Int         @default(0)
+  lastPingAt      DateTime
+  lastPingInside  Boolean     @default(true)
+
+  pings LocationPing[]
+
+  @@index([userId, status])
+  @@index([clubhouseId, day])
+}
+
+model LocationPing {
+  id        String   @id @default(cuid())
+  visitId   String
+  visit     Visit    @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  at        DateTime @default(now())
+  lat       Float
+  lng       Float
+  accuracy  Float
+  distanceM Float
+  inside    Boolean
+  source    String // ping | checkin | checkout | action
+
+  @@index([visitId, at])
+}
+
+model DailyReport {
+  id          String       @id @default(cuid())
+  clubhouseId String
+  clubhouse   Clubhouse    @relation(fields: [clubhouseId], references: [id])
+  userId      String
+  user        User         @relation(fields: [userId], references: [id])
+  day         String
+  status      ReportStatus @default(DRAFT)
+  summary     String?
+  submittedAt DateTime?
+  // on-site minutes at the moment of submission (snapshot for the record)
+  onSiteSeconds Int?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  answers     ChecklistAnswer[]
+  staffChecks StaffCheck[]
+
+  @@unique([clubhouseId, day])
+}
+
+model ChecklistAnswer {
+  id        String       @id @default(cuid())
+  reportId  String
+  report    DailyReport  @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  itemKey   String
+  section   String
+  label     String // snapshot, so history survives template edits
+  status    AnswerStatus?
+  note      String?
+  updatedAt DateTime     @updatedAt
+
+  photos Photo[]
+
+  @@unique([reportId, itemKey])
+}
+
+model StaffCheck {
+  id        String           @id @default(cuid())
+  reportId  String
+  report    DailyReport      @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  staffId   String
+  staff     Staff            @relation(fields: [staffId], references: [id])
+  status    StaffCheckStatus?
+  uniformOk Boolean?
+  onPost    Boolean?
+  noPhone   Boolean?
+  note      String?
+  updatedAt DateTime         @updatedAt
+
+  photos Photo[]
+
+  @@unique([reportId, staffId])
+}
+
+model Incident {
+  id          String       @id @default(cuid())
+  clubhouseId String
+  clubhouse   Clubhouse    @relation(fields: [clubhouseId], references: [id])
+  userId      String
+  user        User         @relation(fields: [userId], references: [id])
+  type        IncidentType
+  severity    Severity
+  title       String
+  description String
+  actionTaken String?
+  escalatedTo String[]
+  occurredAt  DateTime
+  status      OpenClosed   @default(OPEN)
+  closedAt    DateTime?
+  createdAt   DateTime     @default(now())
+
+  photos Photo[]
+
+  @@index([clubhouseId, occurredAt])
+}
+
+// Civil / MEP / furniture / equipment snags — contract SLA: closed within 48h
+model Issue {
+  id          String        @id @default(cuid())
+  clubhouseId String
+  clubhouse   Clubhouse     @relation(fields: [clubhouseId], references: [id])
+  reportedById String
+  reportedBy  User          @relation("IssueReporter", fields: [reportedById], references: [id])
+  category    IssueCategory
+  title       String
+  description String?
+  status      OpenClosed    @default(OPEN)
+  openedAt    DateTime      @default(now())
+  dueAt       DateTime
+  closedAt    DateTime?
+  closedById  String?
+  closedBy    User?         @relation("IssueCloser", fields: [closedById], references: [id])
+  closureNote String?
+
+  photos Photo[]
+
+  @@index([clubhouseId, status])
+}
+
+model Photo {
+  id          String    @id @default(cuid())
+  storageKey  String
+  mime        String
+  sizeBytes   Int
+  uploadedById String
+  uploadedBy  User      @relation(fields: [uploadedById], references: [id])
+  clubhouseId String
+  clubhouse   Clubhouse @relation(fields: [clubhouseId], references: [id])
+  lat         Float
+  lng         Float
+  accuracy    Float
+  distanceM   Float
+  createdAt   DateTime  @default(now())
+  // set when the file is removed by the retention job; the row stays as an audit trail
+  purgedAt    DateTime?
+
+  answerId     String?
+  answer       ChecklistAnswer? @relation(fields: [answerId], references: [id], onDelete: SetNull)
+  staffCheckId String?
+  staffCheck   StaffCheck?      @relation(fields: [staffCheckId], references: [id], onDelete: SetNull)
+  incidentId   String?
+  incident     Incident?        @relation(fields: [incidentId], references: [id], onDelete: SetNull)
+  issueId      String?
+  issue        Issue?           @relation(fields: [issueId], references: [id], onDelete: SetNull)
+  // "closure" for the after-photo on a closed issue
+  purpose      String?
+
+  @@index([createdAt, purgedAt])
+}
+
+model Settings {
+  id                     Int       @id @default(1)
+  minMinutesPerClubhouse Int       @default(90)
+  pingIntervalSec        Int       @default(60)
+  // a gap between two GPS heartbeats longer than this is not counted as on-site time
+  maxPingGapSec          Int       @default(300)
+  maxAccuracyM           Int       @default(100)
+  photoRetentionDays     Int       @default(30)
+  lastCleanupAt          DateTime?
+}
