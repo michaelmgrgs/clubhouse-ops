@@ -6,6 +6,43 @@ import { processPhoto, PhotoRejected } from "@/lib/client/image";
 import { uploadPhoto, sendWithLoc } from "@/lib/client/api";
 import { DEV_GEO, freshLoc } from "@/lib/client/geo";
 
+const RETRY_DELAYS = [800, 2500];
+
+/**
+ * Photo thumbnail that retries a failed load (a busy or cold server can drop
+ * one of many parallel image requests) and shows a retry tile instead of the
+ * browser's broken-image icon.
+ */
+function PhotoImg({ id }: { id: string }) {
+  const [attempt, setAttempt] = useState(0);
+  const [failed, setFailed] = useState(false);
+
+  function onError() {
+    if (attempt < RETRY_DELAYS.length) {
+      setTimeout(() => setAttempt((a) => a + 1), RETRY_DELAYS[attempt]);
+    } else {
+      setFailed(true);
+    }
+  }
+
+  if (failed) {
+    return (
+      <span
+        className="thumb-fail"
+        onClick={(e) => {
+          e.stopPropagation();
+          setFailed(false);
+          setAttempt((a) => a + 1);
+        }}
+      >
+        Photo unavailable · tap to retry
+      </span>
+    );
+  }
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img src={`/api/photos/${id}${attempt ? `?r=${attempt}` : ""}`} alt="" onError={onError} />;
+}
+
 export function Lightbox({ src, onClose }: { src: string; onClose: () => void }) {
   return (
     <div className="lightbox" onClick={onClose}>
@@ -27,8 +64,7 @@ export function Thumbs({ ids, expired = [] as string[], large = false }: { ids: 
             <div key={id} className={`thumb expired ${large ? "thumb-lg" : ""}`}>Photo deleted (30-day retention)</div>
           ) : (
             <button key={id} className={`thumb ${large ? "thumb-lg" : ""}`} style={{ padding: 0, cursor: "zoom-in" }} onClick={() => setOpen(id)}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={`/api/photos/${id}`} alt="" loading="lazy" />
+              <PhotoImg id={id} />
             </button>
           ),
         )}
@@ -100,8 +136,7 @@ export function PhotoStrip({
       {ids.map((id) => (
         <div key={id} className="thumb">
           <button style={{ all: "unset", cursor: "zoom-in", display: "block", width: "100%", height: "100%" }} onClick={() => setOpen(id)}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={`/api/photos/${id}`} alt="" />
+            <PhotoImg id={id} />
           </button>
           {!disabled && (
             <button className="x" onClick={() => remove(id)} aria-label="Remove photo">
