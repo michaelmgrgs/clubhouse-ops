@@ -5,6 +5,7 @@ import { getSettings } from "@/lib/settings";
 import { CHECKLIST, STAFF_ROLE_LABEL, titleCase } from "@/lib/checklist";
 import { cairoDayStart, addDays, fmtDateTime, fmtDay, fmtMinutes, fmtTime } from "@/lib/time";
 import { Thumbs } from "@/components/Photos";
+import { visitEvidence, visitSeconds } from "@/lib/onsite";
 import { Icon } from "@/components/Icon";
 import { PrintButton } from "@/components/PrintButton";
 
@@ -33,7 +34,7 @@ export default async function ReportDetail({ params }: { params: { id: string } 
     include: { photos: { select: { id: true, purgedAt: true } } },
     orderBy: { occurredAt: "asc" },
   });
-  const total = visits.reduce((s, v) => s + v.verifiedSeconds, 0);
+  const total = visits.reduce((s, v) => s + visitSeconds(v), 0);
   const min = settings.minMinutesPerClubhouse * 60;
   const answers = new Map(report.answers.map((a) => [a.itemKey, a]));
   const ids = (ps: { id: string }[]) => ps.map((p) => p.id);
@@ -60,7 +61,7 @@ export default async function ReportDetail({ params }: { params: { id: string } 
 
       <div className="grid-4">
         <div className="card pad stat">
-          <div className="label">Verified on site</div>
+          <div className="label">Time on site</div>
           <div className="value" style={{ color: total >= min ? "var(--ok)" : "var(--bad)" }}>{fmtMinutes(total)}</div>
           <div className="tiny muted">minimum {fmtMinutes(min)}</div>
         </div>
@@ -89,7 +90,7 @@ export default async function ReportDetail({ params }: { params: { id: string } 
 
       <div className="card">
         <div className="section-h" style={{ paddingBottom: 10 }}>
-          <h2>Visits & GPS verification</h2>
+          <h2>Visits & location evidence</h2>
         </div>
         <div className="table-wrap">
           <table className="table">
@@ -98,38 +99,66 @@ export default async function ReportDetail({ params }: { params: { id: string } 
                 <th>Manager</th>
                 <th>Check in</th>
                 <th>Check out</th>
-                <th>Verified</th>
-                <th>GPS heartbeats</th>
+                <th>Timer</th>
+                <th>Paused (seen outside)</th>
+                <th>Longest time with no location</th>
                 <th>Check-in location</th>
               </tr>
             </thead>
             <tbody>
               {visits.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="muted center">
+                  <td colSpan={7} className="muted center">
                     No visits recorded.
                   </td>
                 </tr>
               )}
               {visits.map((v) => {
-                const inside = v.pings.filter((p) => p.inside).length;
-                const maxDist = Math.max(0, ...v.pings.map((p) => p.distanceM));
+                const ev = visitEvidence(v, v.pings, settings.maxAccuracyM);
+                const gapMin = Math.floor(ev.longestGap.seconds / 60);
                 return (
                   <tr key={v.id}>
                     <td>{v.user.name}</td>
                     <td className="mono">{fmtTime(v.checkInAt)}</td>
                     <td className="mono">
-                      {v.checkOutAt ? fmtTime(v.checkOutAt) : "—"}{" "}
-                      {v.status === "AUTO_CLOSED" && <span className="badge warn">auto-closed</span>}
-                      {v.status === "ACTIVE" && <span className="badge ok">on site</span>}
+                      {v.status === "ACTIVE" ? (
+                        <span className="badge ok">still checked in</span>
+                      ) : v.status === "AUTO_CLOSED" ? (
+                        <>
+                          <span className="badge bad">No check-out</span>
+                          <div className="tiny muted" style={{ marginTop: 4 }}>
+                            closed at last location inside, {fmtTime(v.checkOutAt)}
+                          </div>
+                        </>
+                      ) : (
+                        fmtTime(v.checkOutAt)
+                      )}
                     </td>
-                    <td className="bold mono">{fmtMinutes(v.verifiedSeconds)}</td>
+                    <td className="bold mono">{fmtMinutes(visitSeconds(v))}</td>
                     <td className="small">
-                      {v.pings.length} total ·{" "}
-                      <span style={{ color: inside === v.pings.length ? "var(--ok)" : "var(--bad)" }}>
-                        {v.pings.length ? Math.round((inside / v.pings.length) * 100) : 0}% inside
-                      </span>
-                      <div className="tiny muted">furthest {maxDist} m</div>
+                      {ev.pauses.length === 0 ? (
+                        <span className="muted">Never</span>
+                      ) : (
+                        <>
+                          <span className="badge warn">
+                            {ev.pauses.length}× · {fmtMinutes(ev.pausedSeconds)}
+                          </span>
+                          {ev.pauses.slice(0, 3).map((p) => (
+                            <div key={p.from.toISOString()} className="tiny muted">
+                              {fmtTime(p.from)}–{p.to ? fmtTime(p.to) : "end"}
+                            </div>
+                          ))}
+                        </>
+                      )}
+                    </td>
+                    <td className="small">
+                      <span className={`badge ${gapMin >= 30 ? "bad" : gapMin >= 10 ? "warn" : "ok"}`}>{fmtMinutes(ev.longestGap.seconds)}</span>
+                      {gapMin >= 10 && (
+                        <div className="tiny muted">
+                          {fmtTime(ev.longestGap.from)}–{fmtTime(ev.longestGap.to)}
+                        </div>
+                      )}
+                      <div className="tiny muted">{v.pings.length} location reports</div>
                     </td>
                     <td className="small">
                       <a
@@ -148,6 +177,10 @@ export default async function ReportDetail({ params }: { params: { id: string } 
             </tbody>
           </table>
         </div>
+        <p className="tiny muted" style={{ padding: "0 16px 14px" }}>
+          The timer runs from check-in and only pauses when the app shows the manager outside the clubhouse. &quot;No location&quot; means the app
+          was closed or the phone locked — the timer kept running, so check long gaps against the front desk&apos;s times.
+        </p>
       </div>
 
       <div className="card">

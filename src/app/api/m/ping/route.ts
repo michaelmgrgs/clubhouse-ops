@@ -17,6 +17,7 @@ export const POST = route(async (req: Request) => {
   return ok({
     visit: visitDto(updated),
     inside: ev.inside,
+    running: Boolean(updated.runningSince),
     distance: ev.distance,
     accuracyOk: ev.accuracyOk,
     daySeconds: await daySeconds(user.id, visit.clubhouseId, visit.day),

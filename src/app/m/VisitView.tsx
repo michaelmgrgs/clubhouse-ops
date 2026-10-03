@@ -20,7 +20,7 @@ export default function VisitView({ today, visit, club, onChanged }: { today: To
   const [tab, setTab] = useState<Tab>("checklist");
   const [data, setData] = useState<ReportData | null>(null);
   const [daySec, setDaySec] = useState(club.seconds);
-  const [serverInside, setServerInside] = useState(visit.lastPingInside);
+  const [running, setRunning] = useState(visit.running);
   const [syncedAt, setSyncedAt] = useState(Date.now());
   const [now, setNow] = useState(Date.now());
   const [counts, setCounts] = useState({ incidents: 0, issues: club.openIssues });
@@ -59,7 +59,7 @@ export default function VisitView({ today, visit, club, onChanged }: { today: To
       }
       if (typeof r.daySeconds === "number") {
         setDaySec(r.daySeconds);
-        setServerInside(Boolean(r.inside));
+        setRunning(Boolean(r.running));
         setSyncedAt(Date.now());
       }
     } catch {
@@ -112,9 +112,15 @@ export default function VisitView({ today, visit, club, onChanged }: { today: To
   const fix = geo.fix;
   const distance = fix ? Math.round(distanceM(fix.lat, fix.lng, club.lat, club.lng)) : null;
   const insideNow = fix !== null && distance! <= club.radiusM && fix.accuracy <= today.settings.maxAccuracyM;
+
+  // Crossing the geofence: report right away so the server pauses / resumes the timer now.
+  useEffect(() => {
+    if (fix) ping();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [insideNow]);
   const min = today.settings.minMinutes * 60;
-  // Tick locally between heartbeats, capped so it never runs far ahead of the server.
-  const liveSec = daySec + (insideNow && serverInside ? Math.min(Math.max(0, (now - syncedAt) / 1000), today.settings.pingIntervalSec * 2) : 0);
+  // The timer lives on the server; between syncs we tick locally while it's running.
+  const liveSec = daySec + (running ? Math.max(0, (now - syncedAt) / 1000) : 0);
   const pct = Math.min(100, (liveSec / min) * 100);
   const submitted = data?.report.status === "SUBMITTED";
   const locked = !insideNow || submitted;
@@ -161,7 +167,7 @@ export default function VisitView({ today, visit, club, onChanged }: { today: To
           <div className="row-between" style={{ alignItems: "flex-end" }}>
             <div className="timer">{fmtClock(liveSec)}</div>
             <div className="small muted mono" style={{ paddingBottom: 6 }}>
-              {pct >= 100 ? "Minimum reached" : `${fmtDuration(Math.max(0, min - liveSec))} to go`}
+              {!running ? "⏸ Paused" : pct >= 100 ? "Minimum reached" : `${fmtDuration(Math.max(0, min - liveSec))} to go`}
             </div>
           </div>
           <div className={`progress ${pct >= 100 ? "done" : ""}`}>
@@ -182,7 +188,7 @@ export default function VisitView({ today, visit, club, onChanged }: { today: To
             <Icon name="alert" />
             <div>
               <b>You are outside {club.name}</b>
-              {distance !== null && ` (${distance} m away)`}. On-site time is paused and you can&apos;t submit anything until you return.
+              {distance !== null && ` (${distance} m away)`}. The timer is paused and resumes when you&apos;re back inside. You can&apos;t submit or check out until you return.
             </div>
           </div>
         )}
@@ -211,7 +217,7 @@ export default function VisitView({ today, visit, club, onChanged }: { today: To
 
       <div className="m-dock">
         <div className="m-dock-inner">
-          <button className="btn btn-lg" onClick={checkout}>
+          <button className="btn btn-lg" disabled={!insideNow} onClick={checkout}>
             <Icon name="logout" /> Check out
           </button>
           {!submitted && (
@@ -229,7 +235,7 @@ export default function VisitView({ today, visit, club, onChanged }: { today: To
           onClose={() => setSubmitOpen(false)}
           onDone={() => {
             setSubmitOpen(false);
-            loadReport();
+            onChanged(); // submitting ends the visit
           }}
         />
       )}
@@ -262,7 +268,7 @@ function SubmitModal({ club, onClose, onDone }: { club: Club; onClose: () => voi
     setProblems([]);
     try {
       await sendWithLoc("/api/m/report/submit", "POST", { summary });
-      toast("Daily report submitted", "ok");
+      toast("Daily report submitted — you are checked out", "ok");
       onDone();
     } catch (e: any) {
       if (e instanceof RequestError && e.data?.problems) setProblems(e.data.problems);
@@ -274,7 +280,7 @@ function SubmitModal({ club, onClose, onDone }: { club: Club; onClose: () => voi
 
   return (
     <Modal title="Submit daily report" onClose={onClose}>
-      <p className="small muted">{club.name} · once submitted the checklist and staff checks are locked.</p>
+      <p className="small muted">{club.name} · submitting stops the timer and checks you out. The checklist and staff checks are then locked.</p>
       <label className="field">
         <span>Summary of the day (optional)</span>
         <textarea className="textarea" value={summary} onChange={(e) => setSummary(e.target.value)} placeholder="Anything management should know…" />

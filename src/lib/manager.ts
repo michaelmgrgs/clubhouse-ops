@@ -2,16 +2,17 @@
 import { prisma } from "./db";
 import { ApiError } from "./api";
 import { cairoDay } from "./time";
-import { daySeconds } from "./onsite";
+import { daySeconds, visitSeconds } from "./onsite";
+import type { Visit } from "@prisma/client";
 import type { AppSettings } from "./settings";
 
-export function visitDto(v: { id: string; clubhouseId: string; checkInAt: Date; verifiedSeconds: number; lastPingInside: boolean; lastPingAt: Date }) {
+export function visitDto(v: Visit) {
   return {
     id: v.id,
     clubhouseId: v.clubhouseId,
     checkInAt: v.checkInAt,
-    verifiedSeconds: v.verifiedSeconds,
-    lastPingInside: v.lastPingInside,
+    seconds: visitSeconds(v),
+    running: Boolean(v.runningSince),
     lastPingAt: v.lastPingAt,
   };
 }

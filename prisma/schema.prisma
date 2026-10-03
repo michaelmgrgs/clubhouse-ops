@@ -1,10 +1,10 @@
 // Clubhouse Ops — manager reporting for the CFC clubhouses (Oriana, Festival Living).
 //
 // Core idea: every manager action (check-in, checklist answer, photo, incident,
-// maintenance issue) must carry a live GPS fix that the server verifies against
-// the clubhouse geofence. Visits accumulate "verified on-site time" from GPS
-// heartbeats, and the daily report can only be submitted once the manager has
-// spent the minimum time (default 90 min) inside that clubhouse that day.
+// maintenance issue, submit, check-out) must carry a live GPS fix that the
+// server verifies against the clubhouse geofence. A server-side timer runs from
+// check-in, pauses only when a fix shows the manager outside, and the daily
+// report can only be submitted once it reaches the minimum (default 90 min).
 
 generator client {
   provider = "prisma-client-js"
@@ -145,7 +145,13 @@ model Visit {
   checkInAccuracy Float
   checkOutLat     Float?
   checkOutLng     Float?
+  // Server-side timer: banked seconds from finished running stretches, plus the
+  // current stretch (runningSince → now) while running. It pauses only when a
+  // clear GPS fix shows the manager outside, and resumes on the next inside fix.
+  // Silence (phone locked / app closed) never pauses it.
   verifiedSeconds Int         @default(0)
+  runningSince    DateTime?
+  lastInsideAt    DateTime? // last GPS fix inside the geofence (evidence + auto-close point)
   lastPingAt      DateTime
   lastPingInside  Boolean     @default(true)
 

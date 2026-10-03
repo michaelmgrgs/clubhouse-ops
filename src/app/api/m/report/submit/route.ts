@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { ApiError, ok, readJson, route } from "@/lib/api";
-import { daySeconds, requireOnSite } from "@/lib/onsite";
+import { closeVisit, daySeconds, requireOnSite } from "@/lib/onsite";
 import { assertDraft, getOrCreateTodayReport } from "@/lib/manager";
 import { ALL_ITEMS, STAFF_ROLE_LABEL } from "@/lib/checklist";
 import { fmtMinutes } from "@/lib/time";
@@ -9,7 +9,7 @@ import { fmtMinutes } from "@/lib/time";
 export const POST = route(async (req: Request) => {
   const user = await requireUser("MANAGER");
   const body = await readJson(req);
-  const { visit, settings } = await requireOnSite(user.id, body.loc);
+  const { visit, settings, loc } = await requireOnSite(user.id, body.loc);
   const report = await getOrCreateTodayReport(user.id, visit.clubhouseId);
   assertDraft(report);
 
@@ -23,7 +23,7 @@ export const POST = route(async (req: Request) => {
   const onSite = await daySeconds(user.id, visit.clubhouseId, report.day);
   const minSeconds = settings.minMinutesPerClubhouse * 60;
   if (onSite < minSeconds) {
-    problems.push(`On-site time is ${fmtMinutes(onSite)} — at least ${fmtMinutes(minSeconds)} is required before submitting.`);
+    problems.push(`Time on site is ${fmtMinutes(onSite)} — at least ${fmtMinutes(minSeconds)} is required before submitting.`);
   }
 
   for (const item of ALL_ITEMS) {
@@ -55,5 +55,7 @@ export const POST = route(async (req: Request) => {
       userId: user.id,
     },
   });
+  // Submitting the report ends the visit and stops the timer.
+  await closeVisit(visit, "COMPLETED", { lat: loc.lat, lng: loc.lng });
   return ok();
 });

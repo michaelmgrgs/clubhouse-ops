@@ -13,8 +13,8 @@ export type Visit = {
   id: string;
   clubhouseId: string;
   checkInAt: string;
-  verifiedSeconds: number;
-  lastPingInside: boolean;
+  seconds: number;
+  running: boolean;
   lastPingAt: string;
 };
 

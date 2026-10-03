@@ -2,6 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { cairoDay, fmtDay, fmtMinutes, fmtTime } from "@/lib/time";
 import { getSettings } from "@/lib/settings";
+import { secondsByClubDay } from "@/lib/onsite";
 
 export default async function ReportsPage({ searchParams }: { searchParams: { month?: string; club?: string } }) {
   const month = /^\d{4}-\d{2}$/.test(searchParams.month || "") ? searchParams.month! : cairoDay().slice(0, 7);
@@ -17,7 +18,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: { mo
       staffChecks: { where: { status: { in: ["ABSENT", "LATE"] } }, select: { status: true } },
     },
   });
-  const visitSums = await prisma.visit.groupBy({ by: ["clubhouseId", "day"], where: { day: { startsWith: month } }, _sum: { verifiedSeconds: true } });
+  const secondsFor = await secondsByClubDay({ day: { startsWith: month } });
   const min = settings.minMinutesPerClubhouse * 60;
 
   return (
@@ -61,7 +62,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: { mo
               </tr>
             )}
             {reports.map((r) => {
-              const secs = visitSums.find((v) => v.clubhouseId === r.clubhouseId && v.day === r.day)?._sum.verifiedSeconds ?? 0;
+              const secs = secondsFor(r.clubhouseId, r.day);
               const absent = r.staffChecks.filter((s) => s.status === "ABSENT").length;
               const late = r.staffChecks.filter((s) => s.status === "LATE").length;
               return (

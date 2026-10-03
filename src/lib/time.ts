@@ -34,6 +34,14 @@ export function fmtMinutes(seconds: number): string {
   return h > 0 ? `${h}h ${String(m % 60).padStart(2, "0")}m` : `${m}m`;
 }
 
+/** Clubhouse duty ends 10 PM; visits nobody closed are ended at 10:30 PM. */
+export const DAY_END_HOUR = 22.5;
+
+/** The UTC instant of `hours` after 00:00 Cairo time on `day`. */
+export function cairoTimeOnDay(day: string, hours: number): Date {
+  return new Date(cairoDayStart(day).getTime() + hours * 3600_000);
+}
+
 /** The UTC instant of 00:00 Cairo time on `day` (handles Egypt's DST). */
 export function cairoDayStart(day: string): Date {
   const noon = new Date(`${day}T12:00:00Z`);

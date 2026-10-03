@@ -2,7 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { getSettings } from "@/lib/settings";
 import { complianceGrid } from "@/lib/compliance";
-import { addDays, cairoDay, cairoDayStart, fmtDateTime, fmtDay, fmtMinutes } from "@/lib/time";
+import { addDays, cairoDay, cairoDayStart, fmtDateTime, fmtDay, fmtMinutes, fmtTime } from "@/lib/time";
 import { titleCase } from "@/lib/checklist";
 import { Icon } from "@/components/Icon";
 
@@ -10,7 +10,8 @@ export default async function Dashboard() {
   const settings = await getSettings();
   const today = cairoDay();
   const min = settings.minMinutesPerClubhouse * 60;
-  const liveCutoff = new Date(Date.now() - settings.maxPingGapSec * 1000);
+  // "Live" = a location report within the last 3 heartbeats (app open on site).
+  const liveCutoff = new Date(Date.now() - settings.pingIntervalSec * 3 * 1000);
 
   const grid = await complianceGrid(addDays(today, -13), today, min);
   const month = await complianceGrid(addDays(today, -30), addDays(today, -1), min);
@@ -56,8 +57,8 @@ export default async function Dashboard() {
       <div className="grid-2 collapse">
         {grid.rows.map(({ club, cells }) => {
           const t = cells[cells.length - 1];
-          const live = activeVisits.find((v) => v.clubhouseId === club.id && v.lastPingAt > liveCutoff && v.lastPingInside);
-          const stale = activeVisits.find((v) => v.clubhouseId === club.id && !live);
+          const visit = activeVisits.find((v) => v.clubhouseId === club.id);
+          const seenNow = visit && visit.lastPingAt > liveCutoff && visit.lastPingInside;
           const pct = Math.min(100, (t.seconds / min) * 100);
           const inc = todayIncidents.find((x) => x.clubhouseId === club.id)?._count ?? 0;
           const iss = openIssues.filter((x) => x.clubhouseId === club.id);
@@ -65,19 +66,25 @@ export default async function Dashboard() {
             <div key={club.id} className="card pad stack">
               <div className="row-between">
                 <h2>{club.name}</h2>
-                {live ? (
-                  <span className="badge ok">
-                    <span className="dot pulse" /> {live.user.name} on site
-                  </span>
-                ) : stale ? (
-                  <span className="badge warn">Checked in · no GPS signal</span>
-                ) : (
+                {!visit ? (
                   <span className="badge">No manager on site</span>
+                ) : !visit.runningSince ? (
+                  <span className="badge warn">
+                    {visit.user.name} · timer paused, seen outside {fmtTime(visit.lastPingAt)}
+                  </span>
+                ) : seenNow ? (
+                  <span className="badge ok">
+                    <span className="dot pulse" /> {visit.user.name} on site
+                  </span>
+                ) : (
+                  <span className="badge info">
+                    {visit.user.name} checked in · last location {fmtTime(visit.lastInsideAt ?? visit.checkInAt)}
+                  </span>
                 )}
               </div>
               <div className="stack-sm">
                 <div className="row-between small">
-                  <span className="muted">Verified on-site time</span>
+                  <span className="muted">Time on site (timer)</span>
                   <span className="bold mono">
                     {fmtMinutes(t.seconds)} / {fmtMinutes(min)}
                   </span>

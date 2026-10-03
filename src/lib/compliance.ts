@@ -1,16 +1,13 @@
 import { prisma } from "./db";
 import { addDays, cairoDay } from "./time";
+import { secondsByClubDay } from "./onsite";
 
 export type DayCell = { day: string; seconds: number; report: "DRAFT" | "SUBMITTED" | null; state: "ok" | "part" | "miss" | "none" };
 
 /** Per clubhouse, per day: verified on-site seconds (all managers) + report status. */
 export async function complianceGrid(fromDay: string, toDay: string, minSeconds: number) {
   const clubs = await prisma.clubhouse.findMany({ orderBy: { sortOrder: "asc" } });
-  const visits = await prisma.visit.groupBy({
-    by: ["clubhouseId", "day"],
-    where: { day: { gte: fromDay, lte: toDay } },
-    _sum: { verifiedSeconds: true },
-  });
+  const secondsFor = await secondsByClubDay({ day: { gte: fromDay, lte: toDay } });
   const reports = await prisma.dailyReport.findMany({
     where: { day: { gte: fromDay, lte: toDay } },
     select: { clubhouseId: true, day: true, status: true, id: true },
@@ -27,7 +24,7 @@ export async function complianceGrid(fromDay: string, toDay: string, minSeconds:
     rows: clubs.map((c) => ({
       club: c,
       cells: days.map((day): DayCell & { reportId?: string } => {
-        const seconds = visits.find((v) => v.clubhouseId === c.id && v.day === day)?._sum.verifiedSeconds ?? 0;
+        const seconds = secondsFor(c.id, day);
         const r = reports.find((x) => x.clubhouseId === c.id && x.day === day);
         const report = r?.status ?? null;
         let state: DayCell["state"];

@@ -8,7 +8,6 @@ export const dynamic = "force-dynamic";
 const LIMITS: Record<string, [number, number]> = {
   minMinutesPerClubhouse: [15, 480],
   pingIntervalSec: [20, 300],
-  maxPingGapSec: [60, 1800],
   maxAccuracyM: [10, 500],
   photoRetentionDays: [7, 365],
 };
@@ -27,10 +26,6 @@ export const PATCH = route(async (req: Request) => {
     const v = Math.round(Number(b[k]));
     if (!(v >= min && v <= max)) throw new ApiError(400, `${k} must be between ${min} and ${max}`);
     data[k] = v;
-  }
-  const merged = { ...(await getSettings()), ...data };
-  if (merged.maxPingGapSec < merged.pingIntervalSec * 2) {
-    throw new ApiError(400, "Max heartbeat gap must be at least twice the heartbeat interval");
   }
   await prisma.settings.update({ where: { id: 1 }, data });
   return ok();

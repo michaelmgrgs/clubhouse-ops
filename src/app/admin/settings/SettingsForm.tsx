@@ -6,17 +6,15 @@ import { send } from "@/lib/client/api";
 type S = {
   minMinutesPerClubhouse: number;
   pingIntervalSec: number;
-  maxPingGapSec: number;
   maxAccuracyM: number;
   photoRetentionDays: number;
   lastCleanupAt: string | null;
 };
 
 const FIELDS: { key: keyof S; label: string; hint: string; unit: string }[] = [
-  { key: "minMinutesPerClubhouse", label: "Minimum time per clubhouse", hint: "Daily report can't be submitted before this much verified on-site time.", unit: "min" },
-  { key: "pingIntervalSec", label: "GPS heartbeat interval", hint: "How often the manager app reports its location while checked in.", unit: "sec" },
-  { key: "maxPingGapSec", label: "Max heartbeat gap", hint: "If two heartbeats are further apart than this (app closed, phone locked), that gap isn't counted.", unit: "sec" },
-  { key: "maxAccuracyM", label: "Required GPS accuracy", hint: "Fixes less accurate than this are rejected (prevents vague Wi-Fi/cell locations).", unit: "m" },
+  { key: "minMinutesPerClubhouse", label: "Minimum time per clubhouse", hint: "Submit stays locked until the timer reaches this. The timer runs from check-in and only pauses when the app shows the manager outside.", unit: "min" },
+  { key: "pingIntervalSec", label: "Location update interval", hint: "How often the manager app reports its location while it's open (evidence only — a missed report never pauses the timer).", unit: "sec" },
+  { key: "maxAccuracyM", label: "Required GPS accuracy", hint: "Readings less accurate than this are rejected for actions and never pause the timer (protects against indoor GPS drift).", unit: "m" },
   { key: "photoRetentionDays", label: "Photo retention", hint: "Photos older than this are deleted from the server automatically.", unit: "days" },
 ];
 

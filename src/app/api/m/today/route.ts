@@ -2,7 +2,7 @@ import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { ok, route } from "@/lib/api";
 import { getSettings } from "@/lib/settings";
-import { getActiveVisit } from "@/lib/onsite";
+import { getActiveVisit, visitSeconds } from "@/lib/onsite";
 import { visitDto } from "@/lib/manager";
 import { cairoDay } from "@/lib/time";
 
@@ -14,7 +14,12 @@ export const GET = route(async () => {
   const active = await getActiveVisit(user.id, settings);
   const day = cairoDay();
   const clubs = await prisma.clubhouse.findMany({ orderBy: { sortOrder: "asc" } });
-  const sums = await prisma.visit.groupBy({ by: ["clubhouseId"], where: { userId: user.id, day }, _sum: { verifiedSeconds: true } });
+  const visits = await prisma.visit.findMany({
+    where: { userId: user.id, day },
+    select: { clubhouseId: true, status: true, verifiedSeconds: true, runningSince: true, day: true, checkInAt: true, lastInsideAt: true },
+  });
+  const secondsAt = (clubhouseId: string) =>
+    visits.filter((v) => v.clubhouseId === clubhouseId).reduce((s, v) => s + visitSeconds(v), 0);
   const reports = await prisma.dailyReport.findMany({ where: { day }, select: { clubhouseId: true, status: true } });
   const openIssues = await prisma.issue.groupBy({ by: ["clubhouseId"], where: { status: "OPEN" }, _count: true });
 
@@ -32,7 +37,7 @@ export const GET = route(async () => {
       lat: c.latitude,
       lng: c.longitude,
       radiusM: c.radiusM,
-      seconds: sums.find((s) => s.clubhouseId === c.id)?._sum.verifiedSeconds ?? 0,
+      seconds: secondsAt(c.id),
       reportStatus: reports.find((r) => r.clubhouseId === c.id)?.status ?? null,
       openIssues: openIssues.find((i) => i.clubhouseId === c.id)?._count ?? 0,
     })),

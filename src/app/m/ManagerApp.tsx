@@ -116,8 +116,8 @@ function HomeView({ today, geo, onChanged }: { today: Today; geo: ReturnType<typ
             </span>
           </div>
           <p className="small muted">
-            Spend at least <b>{fmtDuration(min)}</b> inside each clubhouse and submit its daily report. Time only counts while this app is open and
-            you&apos;re inside the clubhouse.
+            Check in at each clubhouse and stay at least <b>{fmtDuration(min)}</b>. The timer keeps running after check-in, even with the
+            app closed, but pauses whenever the app shows you outside. Submit the report (inside the clubhouse) to stop the timer.
           </p>
           {withDistance.map((c) => {
             const pct = Math.min(100, (c.seconds / min) * 100);
